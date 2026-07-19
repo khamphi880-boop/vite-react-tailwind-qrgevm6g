@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="th" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Agent Chat Workspace</title>
+    <!-- Tailwind CSS for modern responsive styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- React and ReactDOM from CDN -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+    <!-- Babel compiler to run JSX directly in browser -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap');
+        body {
+            font-family: 'Sarabun', sans-serif;
+        }
+        /* Custom animations */
+        @keyframes slideIn {
+            from { transform: translateY(-1rem); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        .animate-slide-in {
+            animation: slideIn 0.3s ease-out forwards;
+        }
+        .animate-fade-in {
+            animation: fadeIn 0.3s ease-out forwards;
+        }
+    </style>
+</head>
+<body class="h-full bg-slate-950 text-slate-100">
+
+    <!-- React App Root Container -->
+    <div id="root" class="h-full"></div>
+
+    <!-- React Application Logic -->
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        // [PRESET AGENTS] ข้อมูล Agent พื้นฐาน
+        const PRESET_AGENTS = [
+            {
+                id: 'apex-architect',
+                name: 'Apex Architect',
+                description: 'ผู้เชี่ยวชาญด้านการออกแบบระบบ เขียนโค้ดคลีน และแก้ไขปัญหายากๆ',
+                systemInstruction: 'คุณคือ Apex Architect วิศวกรซอฟต์แวร์ระดับอาวุโส หน้าที่ของคุณคือให้คำแนะนำการออกแบบระบบอย่างเป็นระเบียบ และเขียนโค้ดที่สะอาด ปลอดภัย และมีประสิทธิภาพ ตอบเป็นภาษาไทยที่สุภาพเป็นมืออาชีพ',
+                temperature: 0.2,
+                avatar: '💻'
+            },
+            {
+                id: 'content-alchemist',
+                name: 'Content Alchemist',
+                description: 'นักปรุงแต่งคอนเทนต์ ครีเอทีฟบทความ คำโฆษณา และการตลาดออนไลน์',
+                systemInstruction: 'คุณคือ Content Alchemist นักเขียนคำโฆษณาระดับโลก หน้าที่ของคุณคือสร้างไอเดียแปลกใหม่ เขียนข้อความสะดุดตา และจัดวางกลยุทธ์คอนเทนต์ ตอบเป็นภาษาไทยด้วยน้ำเสียงเป็นมิตร มีพลัง และสร้างสรรค์',
+                temperature: 0.9,
+                avatar: '✨'
+            },
+            {
+                id: 'bug-hunter',
+                name: 'Bug Hunter',
+                description: 'นักวิเคราะห์โค้ด ค้นหาช่องโหว่ และ Debugging ตัวแม่',
+                systemInstruction: 'คุณคือ Bug Hunter หน้าที่ของคุณคือช่วยผู้ใช้หาจุดผิดพลาดในโค้ด อธิบายสาเหตุของบั๊ก และให้แนวทางการแก้ไขที่ปลอดภัยที่สุด ตอบเป็นภาษาไทยที่ตรงประเด็น กระชับ และเข้าใจง่าย',
+                temperature: 0.1,
+                avatar: '🐛'
+            },
+            {
+                id: 'zen-guide',
+                name: 'Zen Guide',
+                description: 'ที่ปรึกษาแนวคิดเชิงปรัชญา คลายความเครียด และนำทางความเงียบสงบ',
+                systemInstruction: 'คุณคือ Zen Guide ผู้นำทางความคิดที่สงบนิ่ง หน้าที่ของคุณคือช่วยผู้ใช้จัดระเบียบสมอง ให้คำแนะนำที่เปี่ยมด้วยสติและความเห็นอกเห็นใจ ตอบเป็นภาษาไทยที่อ่อนโยน ลึกซึ้ง และช่วยผ่อนคลายความเครียด',
+                temperature: 0.7,
+                avatar: '🌸'
+            }
+        ];
+
+        function App() {
+            // [STATE MANAGEMENT] จัดเก็บสถานะทั้งหมดของระบบ
+            const [apiKey, setApiKey] = useState(() => localStorage.getItem('gemini_api_key') || '');
+            const [showKeyInput, setShowKeyInput] = useState(!apiKey);
+            const [agents, setAgents] = useState(() => {
+                const saved = localStorage.getItem('custom_agents');
+                const custom = saved ? JSON.parse(saved) : [];
+                return [...PRESET_AGENTS, ...custom];
+            });
+            const [selectedAgentId, setSelectedAgentId] = useState(PRESET_AGENTS[0].id);
+            const [conversations, setConversations] = useState({});
+            const [inputText, setInputText] = useState('');
+            const [isLoading, setIsLoading] = useState(false);
+            const [enableSearch, setEnableSearch] = useState(false);
+            const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+            const [toasts, setToasts] = useState([]);
+
+            // สถานะสำหรับการสร้าง Custom Agent ใหม่
+            const [newAgentName, setNewAgentName] = useState('');
+            const [newAgentDesc, setNewAgentDesc] = useState('');
+            const [newAgentSys, setNewAgentSys] = useState('');
+            const [newAgentTemp, setNewAgentTemp] = useState(0.7);
+            const [newAgentAvatar, setNewAgentAvatar] = useState('🤖');
+            const [showCreator, setShowCreator] = useState(false);
+
+            const chatEndRef = useRef(null);
+
+            // อัปเดตการเลื่อนหน้าจอเมื่อแชทเปลี่ยนไป
+            useEffect(() => {
+                chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+            }, [conversations, selectedAgentId, isLoading]);
+
+            // แสดงหน้าจอป็อปอัพ Toast แจ้งเตือนสไตล์พรีเมียม
+            const showToast = (message, type = 'info') => {
+                const id = Math.random().toString(36).substr(2, 9);
+                setToasts(prev => [...prev, { message, type, id }]);
+                setTimeout(() => {
+                    setToasts(prev => prev.filter(t => t.id !== id));
+                }, 4000);
+            };
+
+            const handleSaveApiKey = (key) => {
+                setApiKey(key);
+                localStorage.setItem('gemini_api_key', key);
+                showToast('บันทึก API Key สำเร็จแล้ว', 'success');
+                setShowKeyInput(false);
+            };
+
+            const handleClearApiKey = () => {
+                setApiKey('');
+                localStorage.removeItem('gemini_api_key');
+                showToast('ลบ API Key เรียบร้อยแล้ว', 'info');
+                setShowKeyInput(true);
+            };
+
+            const currentAgent = agents.find(a => a.id === selectedAgentId) || agents[0];
+            const currentMessages = conversations[selectedAgentId] || [];
+
+            // ระบบบันทึกและลบ Custom Agent
+            const handleCreateAgent = (e) => {
+                e.preventDefault();
+                if (!newAgentName.trim() || !newAgentSys.trim()) {
+                    showToast('กรุณากรอกข้อมูลชื่อและคำสั่งระบบให้ครบถ้วน', 'error');
+                    return;
+                }
+
+                const newAgent = {
+                    id: `custom-${Date.now()}`,
+                    name: newAgentName,
+                    description: newAgentDesc || 'ตัวแทนอัจฉริยะส่วนตัวของคุณ',
+                    systemInstruction: newAgentSys,
+                    temperature: newAgentTemp,
+                    avatar: newAgentAvatar,
+                    isCustom: true
+                };
+
+                const updatedAgents = [...agents, newAgent];
+                setAgents(updatedAgents);
+                localStorage.setItem('custom_agents', JSON.stringify(updatedAgents.filter(a => a.isCustom)));
+
+                setSelectedAgentId(newAgent.id);
+                showToast(`สร้าง Agent "${newAgent.name}" สำเร็จแล้ว!`, 'success');
+
+                setNewAgentName('');
+                setNewAgentDesc('');
+                setNewAgentSys('');
+                setNewAgentTemp(0.7);
+                setNewAgentAvatar('🤖');
+                setShowCreator(false);
+            };
+
+            const handleDeleteAgent = (agentId, e) => {
+                e.stopPropagation();
+                if (confirm('คุณต้องการลบ Agent นี้ใช่หรือไม่?')) {
+                    const updatedAgents = agents.filter(a => a.id !== agentId);
+                    setAgents(updatedAgents);
+                    localStorage.setItem('custom_agents', JSON.stringify(updatedAgents.filter(a => a.isCustom)));
+
+                    if (selectedAgentId === agentId) {
+                        setSelectedAgentId(PRESET_AGENTS[0].id);
+                    }
+                    showToast('ลบ Agent เรียบร้อย', 'success');
+                }
+            };
+
+            const handleClearHistory = () => {
+                if (confirm(`คุณต้องการล้างประวัติการแชททั้งหมดกับ ${currentAgent.name} ใช่หรือไม่?`)) {
+                    setConversations(prev => ({ ...prev, [selectedAgentId]: [] }));
+                    showToast('ล้างประวัติแชทเรียบร้อยแล้ว', 'success');
+                }
+            };
+
+            // เชื่อมต่อ API พร้อมระบบ Exponential Backoff ลองใหม่อัตโนมัติกรณีล้มเหลว
+            const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+            
+            const fetchWithRetry = async (url, options, retries = 5, delayMs = 1000) => {
+                try {
+                    const response = await fetch(url, options);
+                    if (!response.ok) {
+                        const errorText = await response.text();
+                        throw new Error(errorText || `สถานะ HTTP: ${response.status}`);
+                    }
+                    return await response.json();
+                } catch (error) {
+                    if (retries <= 0) throw error;
+                    await delay(delayMs);
+                    return fetchWithRetry(url, options, retries - 1, delayMs * 2);
+                }
+            };
+
+            const handleSendMessage = async (e) => {
+                e.preventDefault();
+                if (!inputText.trim()) return;
+                if (!apiKey) {
+                    showToast('กรุณาระบุ Gemini API Key ก่อนใช้งาน', 'error');
+                    setShowKeyInput(true);
+                    return;
+                }
+
+                const userText = inputText;
+                setInputText('');
+                setIsLoading(true);
+
+                const userMsg = {
+                    id: `user-${Date.now()}`,
+                    role: 'user',
+                    text: userText,
+                    timestamp: new Date()
+                };
+
+                const currentHistory = conversations[selectedAgentId] || [];
+                const updatedHistory = [...currentHistory, userMsg];
+                setConversations(prev => ({ ...prev, [selectedAgentId]: updatedHistory }));
+
+                try {
+                    // จำกัด Context ประวัติการแชทเพื่อประสิทธิภาพ
+                    const recentContext = updatedHistory.slice(-8).map(msg => ({
+                        role: msg.role,
+                        parts: [{ text: msg.text }]
+                    }));
+
+                    const payload = {
+                        contents: recentContext,
+                        systemInstruction: {
+                            parts: [{ text: currentAgent.systemInstruction }]
+                        },
+                        generationConfig: {
+                            temperature: currentAgent.temperature
+                        }
+                    };
+
+                    if (enableSearch) {
+                        payload.tools = [{ google_search: {} }];
+                    }
+
+                    // ปรับใช้โมเดล Gemini 3.5 Flash ตามที่ผู้ใช้กำหนด
+                    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${apiKey}`;
+
+                    const responseData = await fetchWithRetry(apiUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+
+                    const modelText = responseData.candidates?.[0]?.content?.parts?.[0]?.text || 'ไม่ได้รับการตอบสนองจากโมเดล';
+                    
+                    let sources = [];
+                    const attributions = responseData.candidates?.[0]?.groundingMetadata?.groundingAttributions;
+                    if (attributions && Array.isArray(attributions)) {
+                        sources = attributions.map(a => ({
+                            title: a.web?.title || 'ลิงก์ภายนอก',
+                            uri: a.web?.uri || '#'
+                        })).filter(s => s.uri !== '#');
+                    }
+
+                    const modelMsg = {
+                        id: `model-${Date.now()}`,
+                        role: 'model',
+                        text: modelText,
+                        timestamp: new Date(),
+                        sources: sources.length > 0 ? sources : undefined
+                    };
+
+                    setConversations(prev => ({
+                        ...prev,
+                        [selectedAgentId]: [...updatedHistory, modelMsg]
+                    }));
+
+                } catch (error) {
+                    console.error("System Error: ", error);
+                    let errorMsg = 'การส่งข้อมูลล้มเหลว กรุณาตรวจสอบอินเทอร์เน็ตหรือความถูกต้องของ API Key';
+                    try {
+                        // พยายามสกัดข้อความ Error จริงจาก API ของ Google ออกมาแสดง
+                        const errObj = JSON.parse(error.message);
+                        if (errObj.error?.message) {
+                            errorMsg = `API Error: ${errObj.error.message}`;
+                        }
+                    } catch (e) {
+                        if (error.message && !error.message.includes('Unexpected token')) {
+                            errorMsg = error.message;
+                        }
+                    }
+                    
+                    showToast(errorMsg, 'error');
+                    setConversations(prev => ({ ...prev, [selectedAgentId]: currentHistory }));
+                    setInputText(userText);
+                } finally {
+                    setIsLoading(false);
+                }
+            };
+
+            // แสดงหน้าแชทที่มีการแยกโครงสร้าง Code block ให้อ่านง่าย
+            const renderMessageText = (text) => {
+                const parts = text.split(/(```[\s\S]*?```)/g);
+                return parts.map((part, index) => {
+                    if (part.startsWith('```') && part.endsWith('```')) {
+                        const codeLines = part.slice(3, -3).trim().split('\n');
+                        let language = 'code';
+                        if (codeLines[0] && codeLines[0].length < 15 && !codeLines[0].includes(' ')) {
+                            language = codeLines[0];
+                            codeLines.shift();
+                        }
+                        const codeText = codeLines.join('\n');
+                        return (
+                            <div key={index} className="my-3 overflow-hidden rounded-xl border border-slate-800 bg-[#0d1117] font-mono text-xs md:text-sm">
+                                <div className="flex items-center justify-between bg-slate-900 px-4 py-1.5 text-slate-400 border-b border-slate-800">
+                                    <span className="text-[10px] uppercase font-bold tracking-wider text-teal-400">{language}</span>
+                                    <button 
+                                        onClick={() => {
+                                            const textarea = document.createElement('textarea');
+                                            textarea.value = codeText;
+                                            document.body.appendChild(textarea);
+                                            textarea.select();
+                                            document.execCommand('copy');
+                                            document.body.removeChild(textarea);
+                                            showToast('คัดลอกโค้ดลงคลิปบอร์ดแล้ว', 'success');
+                                        }}
+                                        className="hover:text-white text-xs transition"
+                                    >
+                                        📋 คัดลอก
+                                    </button>
+                                </div>
+                                <pre className="p-4 overflow-x-auto text-slate-200"><code>{codeText}</code></pre>
+                            </div>
+                        );
+                    }
+
+                    // จัดการแสดงตัวหนาอย่างง่าย
+                    const inlineParts = part.split(/(\*\*.*?\*\*)/g).map((subPart, subIdx) => {
+                        if (subPart.startsWith('**') && subPart.endsWith('**')) {
+                            return <strong key={subIdx} className="font-extrabold text-white">{subPart.slice(2, -2)}</strong>;
+                        }
+                        return subPart;
+                    });
+
+                    return <span key={index} className="whitespace-pre-wrap">{inlineParts}</span>;
+                });
+            };
+
+            return (
+                <div className="flex h-screen w-full overflow-hidden bg-slate-950 text-slate-100">
+                    
+                    {/* [TOAST ALERTS] */}
+                    <div className="fixed top-4 right-4 z-50 flex flex-col gap-2 max-w-sm w-full">
+                        {toasts.map(t => (
+                            <div key={t.id} className={`flex items-center gap-2 p-4 rounded-xl border shadow-2xl transition duration-300 animate-slide-in backdrop-blur-md ${
+                                t.type === 'error' ? 'bg-red-950/90 border-red-800 text-red-200' :
+                                t.type === 'success' ? 'bg-emerald-950/90 border-emerald-800 text-emerald-200' :
+                                'bg-blue-950/90 border-blue-800 text-blue-200'
+                            }`}>
+                                <span>{t.type === 'error' ? '❌' : t.type === 'success' ? '✅' : 'ℹ️'}</span>
+                                <p className="text-sm font-medium">{t.message}</p>
+                            </div>
+                        ))}
+                    </div>
+
+                    {/* [SIDEBAR: CONTROL CENTER] */}
+                    <aside className={`fixed inset-y-0 left-0 z-30 flex w-80 flex-col border-r border-slate-900 bg-slate-900/95 backdrop-blur-sm transition-transform duration-300 md:static md:translate-x-0 ${
+                        isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
+                    }`}>
+                        <div className="flex h-16 items-center justify-between px-6 border-b border-slate-800 bg-slate-900">
+                            <div className="flex items-center gap-2">
+                                <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-600 font-bold text-white text-lg">🤖</span>
+                                <span className="text-lg font-bold tracking-tight bg-gradient-to-r from-white to-slate-400 bg-clip-text text-transparent">AI Agents</span>
+                            </div>
+                            <button onClick={() => setIsSidebarOpen(false)} className="md:hidden text-slate-400 hover:text-white p-1">
+                                ❌
+                            </button>
+                        </div>
+
+                        {/* List of Agents */}
+                        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                            <div className="flex items-center justify-between px-2">
+                                <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">เลือกคุยตามความสามารถ</span>
+                                <button onClick={() => setShowCreator(!showCreator)} className="text-xs text-indigo-400 hover:text-indigo-300 font-medium">
+                                    {showCreator ? 'ยกเลิก' : '+ สร้าง Agent'}
+                                </button>
+                            </div>
+
+                            {/* Custom Agent Form */}
+                            {showCreator && (
+                                <form onSubmit={handleCreateAgent} className="p-4 rounded-xl border border-indigo-500/20 bg-indigo-950/20 space-y-3 animate-fade-in">
+                                    <div>
+                                        <label className="block text-[11px] text-slate-400 mb-1">อีโมจิ</label>
+                                        <div className="flex gap-2">
+                                            {['🤖', '🧙‍♂️', '🎨', '🚀', '🔮', '🧸'].map(e => (
+                                                <button key={e} type="button" onClick={() => setNewAgentAvatar(e)} className={`text-lg p-1.5 rounded-lg border ${newAgentAvatar === e ? 'border-indigo-500 bg-indigo-500/10' : 'border-slate-800'}`}>
+                                                    {e}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label className="block text-[11px] text-slate-400 mb-1">ชื่อ Agent</label>
+                                        <input type="text" value={newAgentName} onChange={e => setNewAgentName(e.target.value)} placeholder="เช่น นักเขียนสรุปบทความ" className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500" />
+                                    </div>
+                                    <div>
+                                        <label className="block text-[11px] text-slate-400 mb-1">คำอธิบายย่อ</label>
+                                        <input type="text" value={newAgentDesc} onChange={e => setNewAgentDesc(e.target.value)} placeholder="เช่น ช่วยย่อข้อมูลให้อ่านเข้าใจง่ายใน 3 ข้อ" className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500" />
+                                    </div>
+                                    <div>
+                                        <label className="block text-[11px] text-slate-400 mb-1">คำสั่งระบบ (System Instructions)</label>
+                                        <textarea value={newAgentSys} onChange={e => setNewAgentSys(e.target.value)} placeholder="คุณมีบทบาทเด่นในการสรุปข้อมูลจากข้อความยาว..." rows={3} className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500" />
+                                    </div>
+                                    <button type="submit" className="w-full rounded-lg bg-indigo-600 py-1.5 text-xs font-semibold text-white hover:bg-indigo-500 transition">
+                                        บันทึกความสามารถนี้
+                                    </button>
+                                </form>
+                            )}
+
+                            <div className="space-y-1">
+                                {agents.map(agent => (
+                                    <button key={agent.id} onClick={() => { setSelectedAgentId(agent.id); setIsSidebarOpen(false); }} className={`w-full text-left p-3 rounded-xl transition flex items-start gap-3 group border ${selectedAgentId === agent.id ? 'bg-slate-800 border-slate-700 text-white' : 'border-transparent hover:bg-slate-800/30 text-slate-400'}`}>
+                                        <span className="text-2xl">{agent.avatar}</span>
+                                        <div className="flex-1 min-w-0">
+                                            <div className="flex items-center justify-between">
+                                                <h4 className="font-semibold text-sm truncate">{agent.name}</h4>
+                                                {agent.isCustom && (
+                                                    <span onClick={e => handleDeleteAgent(agent.id, e)} className="opacity-0 group-hover:opacity-100 p-0.5 hover:bg-slate-700 rounded text-slate-400 hover:text-red-400 transition">
+                                                        🗑️
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <p className="text-xs text-slate-500 line-clamp-1">{agent.description}</p>
+                                        </div>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* API Settings Section */}
+                        <div className="p-4 border-t border-slate-800 bg-slate-900/50 space-y-3">
+                            <div className="flex items-center justify-between text-xs">
+                                <span className="text-slate-400">การเชื่อมต่อ:</span>
+                                {apiKey ? <span className="text-emerald-400 font-bold">🟢 เชื่อมต่อแล้ว</span> : <span className="text-red-400 font-bold">🔴 ยังไม่ใส่คีย์</span>}
+                            </div>
+                            {apiKey ? (
+                                <button onClick={handleClearApiKey} className="w-full text-xs py-2 bg-slate-950 hover:bg-red-950/20 border border-slate-800 text-slate-400 hover:text-red-400 rounded-lg transition">
+                                    ลบ API Key ของฉัน
+                                </button>
+                            ) : (
+                                <button onClick={() => setShowKeyInput(true)} className="w-full text-xs py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded-lg transition">
+                                    ตั้งค่า API Key
+                                </button>
+                            )}
+                        </div>
+                    </aside>
+
+                    {/* Mobile menu cover */}
+                    {isSidebarOpen && <div onClick={() => setIsSidebarOpen(false)} className="fixed inset-0 z-20 bg-black/60 backdrop-blur-xs md:hidden" />}
+
+                    {/* [CHAT WINDOW] */}
+                    <main className="flex-1 flex flex-col h-full bg-slate-950 overflow-hidden relative">
+                        
+                        {/* Header bar */}
+                        <header className="flex h-16 items-center justify-between px-6 border-b border-slate-900 bg-slate-900/40 backdrop-blur-md">
+                            <div className="flex items-center gap-3">
+                                <button onClick={() => setIsSidebarOpen(true)} className="md:hidden text-slate-400 hover:text-white">☰</button>
+                                <span className="text-2xl">{currentAgent.avatar}</span>
+                                <div>
+                                    <h2 className="font-bold text-sm md:text-base text-white">{currentAgent.name}</h2>
+                                    <p className="text-[10px] md:text-xs text-slate-400 line-clamp-1">{currentAgent.description}</p>
+                                </div>
+                            </div>
+
+                            <div className="flex items-center gap-3">
+                                <div className="flex items-center gap-2 bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-full">
+                                    <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">สืบค้นเว็บ (Google)</span>
+                                    <button onClick={() => setEnableSearch(!enableSearch)} className={`relative inline-flex h-5 w-9 rounded-full transition-colors ${enableSearch ? 'bg-indigo-600' : 'bg-slate-700'}`}>
+                                        <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white transition duration-200 ease-in-out ${enableSearch ? 'translate-x-4' : 'translate-x-0'}`} />
+                                    </button>
+                                </div>
+
+                                {currentMessages.length > 0 && (
+                                    <button onClick={handleClearHistory} className="p-1.5 border border-slate-800 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition">
+                                        🗑️
+                                    </button>
+                                )}
+                            </div>
+                        </header>
+
+                        {/* Conversational Bubbles */}
+                        <div className="flex-1 overflow-y-auto px-4 py-6 md:px-8 space-y-6">
+                            {currentMessages.length === 0 ? (
+                                <div className="h-full flex flex-col items-center justify-center text-center px-4 animate-fade-in">
+                                    <span className="text-5xl mb-4 animate-bounce">{currentAgent.avatar}</span>
+                                    <h3 className="text-xl font-bold text-slate-200 mb-2">ยินดีต้อนรับสู่ {currentAgent.name} Workspace!</h3>
+                                    <p className="text-sm text-slate-500 max-w-md">พิมพ์คำถาม ข้อความ หรือมอบหมายงานให้กับ AI ในบทบาทนี้ได้ทันที ข้อมูลทั้งหมดปลอดภัยและถูกประมวลผลผ่านอุปกรณ์ของคุณโดยตรง</p>
+                                </div>
+                            ) : (
+                                <div className="max-w-4xl mx-auto space-y-6">
+                                    {currentMessages.map(msg => (
+                                        <div key={msg.id} className={`flex gap-4 ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-fade-in`}>
+                                            {msg.role === 'model' && (
+                                                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-800 border border-slate-700 text-xl shadow">
+                                                    {currentAgent.avatar}
+                                                </span>
+                                            )}
+                                            <div className="max-w-[85%] flex flex-col">
+                                                <div className={`p-4 rounded-2xl shadow-md border ${msg.role === 'user' ? 'bg-indigo-600 text-white border-indigo-500 rounded-tr-none' : 'bg-slate-900 border-slate-800 text-slate-200 rounded-tl-none'}`}>
+                                                    <div className="text-sm md:text-base leading-relaxed">
+                                                        {renderMessageText(msg.text)}
+                                                    </div>
+                                                </div>
+
+                                                {/* Grounding sources display */}
+                                                {msg.role === 'model' && msg.sources && (
+                                                    <div className="mt-2.5 p-3 rounded-xl border border-indigo-950 bg-indigo-950/20">
+                                                        <span className="text-[10px] font-bold text-indigo-400 uppercase tracking-wider block mb-1.5">🌐 ข้อมูลอ้างอิงจากการสืบค้น:</span>
+                                                        <div className="flex flex-wrap gap-2">
+                                                            {msg.sources.map((src, sIdx) => (
+                                                                <a key={sIdx} href={src.uri} target="_blank" rel="noopener noreferrer" className="text-xs bg-slate-900 hover:bg-indigo-900/30 border border-slate-800 text-indigo-300 px-2 py-1 rounded transition line-clamp-1 max-w-xs">
+                                                                    🔗 {src.title}
+                                                                </a>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    ))}
+
+                                    {/* Simulated loading indicator */}
+                                    {isLoading && (
+                                        <div className="flex gap-4 justify-start animate-pulse">
+                                            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-800 border border-slate-700 text-xl">{currentAgent.avatar}</span>
+                                            <div className="p-4 rounded-2xl rounded-tl-none bg-slate-900 border border-slate-800 min-w-[150px]">
+                                                <div className="h-3 bg-slate-800 rounded w-24 mb-2 animate-pulse"></div>
+                                                <div className="h-3 bg-slate-800 rounded w-16 animate-pulse"></div>
+                                            </div>
+                                        </div>
+                                    )}
+                                    <div ref={chatEndRef} />
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Input form */}
+                        <footer className="p-4 md:p-6 bg-slate-950 border-t border-slate-900">
+                            <form onSubmit={handleSendMessage} className="max-w-4xl mx-auto flex gap-3">
+                                <input
+                                    type="text"
+                                    value={inputText}
+                                    onChange={e => setInputText(e.target.value)}
+                                    placeholder={`พิมพ์เพื่อคุยกับ ${currentAgent.name}...`}
+                                    disabled={isLoading}
+                                    className="flex-1 rounded-2xl border border-slate-800 bg-slate-900/60 px-5 py-3 md:py-4 text-sm text-slate-100 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500/50 disabled:opacity-50"
+                                />
+                                <button type="submit" disabled={isLoading || !inputText.trim()} className="rounded-2xl bg-indigo-600 hover:bg-indigo-500 px-6 font-semibold text-white shadow-lg shadow-indigo-600/30 transition disabled:opacity-40 flex items-center justify-center">
+                                    {isLoading ? <span className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent" /> : 'ส่ง 🚀'}
+                                </button>
+                            </form>
+                        </footer>
+
+                        {/* [API KEY MODAL] */}
+                        {showKeyInput && (
+                            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-xs">
+                                <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-2xl">
+                                    <h3 className="text-lg font-bold text-white mb-2 flex items-center gap-2">🔑 กำหนด Gemini API Key ของคุณ</h3>
+                                    <p className="text-xs text-slate-400 mb-4">ข้อมูลคีย์ของท่านจะถูกจัดเก็บไว้ในเบราว์เซอร์เครื่องนี้เท่านั้น ปลอดภัยจากการเข้าถึงของบุคคลภายนอก 100%</p>
+                                    <div className="space-y-4">
+                                        <input type="password" id="api-key" defaultValue={apiKey} placeholder="ป้อนรหัสคีย์ (AIzaSy...)" className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500" />
+                                        <div className="flex gap-2">
+                                            <button onClick={() => {
+                                                const val = document.getElementById('api-key').value.trim();
+                                                if(val) handleSaveApiKey(val);
+                                                else showToast('กรุณากรอก API Key ก่อนบันทึก', 'error');
+                                            }} className="flex-1 rounded-xl bg-indigo-600 py-2.5 text-sm font-semibold text-white hover:bg-indigo-500 transition">
+                                                บันทึกและเริ่มแชท
+                                            </button>
+                                            {apiKey && <button onClick={() => setShowKeyInput(false)} className="rounded-xl border border-slate-800 px-4 py-2.5 text-sm text-slate-400 hover:text-white transition">ปิด</button>}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </main>
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
